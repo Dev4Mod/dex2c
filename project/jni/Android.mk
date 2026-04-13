@@ -5,6 +5,7 @@ LOCAL_MODULE    := stub
 LOCAL_LDLIBS    := -llog
 
 LOCAL_LDFLAGS += "-Wl,-z,max-page-size=16384"
+LOCAL_SHORT_COMMANDS := true
 
 SOURCES := $(wildcard $(LOCAL_PATH)/nc/*.cpp)
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/nc

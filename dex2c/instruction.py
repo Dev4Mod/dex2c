@@ -20,7 +20,7 @@ from builtins import object
 from typing import List, Set
 from dex2c import util
 
-logger = logging.getLogger('dex2c.instruction')
+logger = logging.getLogger("dex2c.instruction")
 
 
 class Value(object):
@@ -31,6 +31,7 @@ class Value(object):
         self.definition = None
         self.uses = set()
         self.is_const = False
+        self.const_value = None
 
     def set_type(self, vtype: str):
         if vtype is None or self.type_sealed:
@@ -48,7 +49,6 @@ class Value(object):
             return True
 
     def refine_type(self, vtype: str):
-
         if vtype is None or self.type_sealed or self.var_type == vtype:
             return False
 
@@ -62,17 +62,23 @@ class Value(object):
         if util.is_java_lang_object(self.var_type) and util.is_ref(vtype):
             return False
 
-        if (util.is_int(self.var_type) and util.is_int(vtype)) or \
-                (util.is_float(self.var_type) and util.is_float(vtype)):
+        if (util.is_int(self.var_type) and util.is_int(vtype)) or (
+            util.is_float(self.var_type) and util.is_float(vtype)
+        ):
             new_type = util.get_smaller_type(self.var_type, vtype)
             if new_type != self.var_type:
                 self.var_type = new_type
                 return True
             else:
                 return False
-        elif util.is_int(self.var_type) and (util.is_float(vtype) or util.is_ref(vtype)):
+        elif util.is_int(self.var_type) and (
+            util.is_float(vtype) or util.is_ref(vtype)
+        ):
             # 常量转换成浮点,提升为浮点类型,或者引用类型 0->NULL, 0->int_to_float()
             if self.is_const:
+                # only literal 0 can be treated as a reference NULL
+                if util.is_ref(vtype) and self.const_value not in (0,):
+                    return False
                 # 常量转换成浮点,需要调用相应的帮助函数
                 self.var_type = vtype
                 return True
@@ -81,7 +87,9 @@ class Value(object):
                     # 可以无损转化成浮点类型
                     return False
                 else:
-                    raise Exception("unable to refine type %s %s" % (self.var_type, vtype))
+                    raise Exception(
+                        "unable to refine type %s %s" % (self.var_type, vtype)
+                    )
         else:
             new_type = util.merge_type(self.var_type, vtype)
             if new_type is None:
@@ -153,7 +161,7 @@ class Constant(Value):
             self.refine_type(vtype)
 
     def get_constant(self):
-        if self.var_type and self.var_type[0] == 'L':
+        if self.var_type and self.var_type[0] == "L":
             return util.hex_escape_string(self.constant)
         else:
             return self.constant
@@ -166,14 +174,14 @@ class Constant(Value):
 
     def __str__(self):
         atype = self.var_type
-        if atype == 'F':
-            return 'd2c_bitcast_to_float(%r)' % self.constant
-        elif atype == 'D':
-            return 'd2c_bitcast_to_double(%r)' % self.constant
+        if atype == "F":
+            return "d2c_bitcast_to_float(%r)" % self.constant
+        elif atype == "D":
+            return "d2c_bitcast_to_double(%r)" % self.constant
         elif util.is_int(atype) or util.is_long(atype):
-            return '%r' % self.constant
+            return "%r" % self.constant
         else:
-            return '%s' % (self.get_constant())
+            return "%s" % (self.get_constant())
 
 
 class Variable(Value):
@@ -198,7 +206,10 @@ class Variable(Value):
         return visitor.visit_decl(self)
 
     def __str__(self):
-        return 'v%s_%s' % (self.register if self.register >= 0 else 'Result', self.version)
+        return "v%s_%s" % (
+            self.register if self.register >= 0 else "Result",
+            self.version,
+        )
 
 
 class Phi(Variable):
@@ -285,12 +296,12 @@ class Phi(Variable):
         return True
 
     def print(self):
-        s = 'v%s_%s = Phi(' % (self.register, self.version)
+        s = "v%s_%s = Phi(" % (self.register, self.version)
         vars = []
         for n, v in self.operands.items():
             vars.append(str(v))
-        s += ','.join(vars)
-        s += ')'
+        s += ",".join(vars)
+        s += ")"
         return s
 
 
@@ -364,10 +375,13 @@ class Instruction(object):
 
     def dump(self):
         if self.dvm_instr is not None:
-            return '%x:%s %s' % (
-                self.offset, self.dvm_instr.get_name(), util.hex_escape_string(self.dvm_instr.get_output()))
+            return "%x:%s %s" % (
+                self.offset,
+                self.dvm_instr.get_name(),
+                util.hex_escape_string(self.dvm_instr.get_output()),
+            )
         else:
-            return ''
+            return ""
 
 
 class LoadConstant(Instruction):
@@ -376,6 +390,7 @@ class LoadConstant(Instruction):
         self.value = value
         self.value.refine_type(cst.get_type())
         self.value.is_const = True
+        self.value.const_value = cst.get_constant()
         self.operands.append(cst)
         self.obfus = obfus
 
@@ -388,7 +403,7 @@ class LoadConstant(Instruction):
 
     def get_class(self):
         cst_type = self.get_cst().get_type()
-        if cst_type == 'Ljava/lang/Class;':
+        if cst_type == "Ljava/lang/Class;":
             return self.get_cst().get_constant()
         else:
             return None
@@ -400,7 +415,7 @@ class LoadConstant(Instruction):
         return visitor.visit_load_constant(self, self.obfus)
 
     def __str__(self):
-        return '%s = %s' % (str(self.value), str(self.operands[0]))
+        return "%s = %s" % (str(self.value), str(self.operands[0]))
 
 
 class Param(object):
@@ -416,7 +431,7 @@ class Param(object):
         return visitor.visit_param(self.value)
 
     def __str__(self):
-        return 'PARAM_%s' % self.name
+        return "PARAM_%s" % self.name
 
 
 class ThisParam(Param):
@@ -428,7 +443,7 @@ class ThisParam(Param):
         return visitor.visit_this()
 
     def __str__(self):
-        return 'THIS'
+        return "THIS"
 
 
 class MoveParam(Instruction):
@@ -446,7 +461,7 @@ class MoveParam(Instruction):
         return self.param
 
     def __str__(self):
-        return 'MoveParam(%s)' % self.param.get_value()
+        return "MoveParam(%s)" % self.param.get_value()
 
 
 class MoveExpression(Instruction):
@@ -477,7 +492,7 @@ class MoveExpression(Instruction):
         return Changed
 
     def __str__(self):
-        return '%s = %s' % (self.value, self.operands[0])
+        return "%s = %s" % (self.value, self.operands[0])
 
 
 class MoveResultExpression(MoveExpression):
@@ -488,7 +503,7 @@ class MoveResultExpression(MoveExpression):
         return visitor.visit_move_result(self, self.value, self.operands[0])
 
     def __str__(self):
-        return '%s = %s' % (self.value, self.operands[0])
+        return "%s = %s" % (self.value, self.operands[0])
 
 
 class ArrayStoreInstruction(Instruction):
@@ -512,10 +527,10 @@ class ArrayStoreInstruction(Instruction):
 
     def resolve_type(self):
         elem_type = self.get_elem_type()
-        Changed = self.index.set_type('I')
+        Changed = self.index.set_type("I")
         if elem_type:
             Changed |= self.operands[0].refine_type(elem_type)
-            Changed |= self.array.refine_type('[' + elem_type)
+            Changed |= self.array.refine_type("[" + elem_type)
         return Changed
 
     def get_elem_type(self):
@@ -530,12 +545,10 @@ class ArrayStoreInstruction(Instruction):
             return util.merge_type(type1, type2)
 
     def visit(self, visitor):
-        return visitor.visit_astore(self, self.array,
-                                    self.index,
-                                    self.operands[0])
+        return visitor.visit_astore(self, self.array, self.index, self.operands[0])
 
     def __str__(self):
-        return '%s[%s] = %s' % (self.array, self.index, self.operands[0])
+        return "%s[%s] = %s" % (self.array, self.index, self.operands[0])
 
 
 class StaticInstruction(Instruction):
@@ -552,16 +565,18 @@ class StaticInstruction(Instruction):
         return self.clsdesc
 
     def get_field(self):
-        return '%s.%s' % (self.clsdesc, self.name)
+        return "%s.%s" % (self.clsdesc, self.name)
 
     def resolve_type(self):
         return self.operands[0].refine_type(self.ftype)
 
     def visit(self, visitor):
-        return visitor.visit_put_static(self, self.clsdesc, self.name, self.ftype, self.operands[0])
+        return visitor.visit_put_static(
+            self, self.clsdesc, self.name, self.ftype, self.operands[0]
+        )
 
     def __str__(self):
-        return '%s.%s = %s' % (self.cls, self.name, self.operands[0])
+        return "%s.%s = %s" % (self.cls, self.name, self.operands[0])
 
 
 class InstanceInstruction(Instruction):
@@ -581,7 +596,7 @@ class InstanceInstruction(Instruction):
         return self.clsdesc
 
     def get_field(self):
-        return '%s.%s' % (self.clsdesc, self.name)
+        return "%s.%s" % (self.clsdesc, self.name)
 
     def resolve_type(self):
         Changed = False
@@ -590,10 +605,17 @@ class InstanceInstruction(Instruction):
         return Changed
 
     def visit(self, visitor):
-        return visitor.visit_put_instance(self, self.operands[0], self.operands[1], self.atype, self.clsdesc, self.name)
+        return visitor.visit_put_instance(
+            self,
+            self.operands[0],
+            self.operands[1],
+            self.atype,
+            self.clsdesc,
+            self.name,
+        )
 
     def __str__(self):
-        return '%s.%s = %s' % (self.operands[0], self.name, self.operands[1])
+        return "%s.%s = %s" % (self.operands[0], self.name, self.operands[1])
 
 
 class NewInstance(Instruction):
@@ -616,14 +638,16 @@ class NewInstance(Instruction):
         return visitor.visit_new(self, self.value, self.type)
 
     def __str__(self):
-        return '%s = NEW(%s)' % (self.value, self.type)
+        return "%s = NEW(%s)" % (self.value, self.type)
 
 
 class InvokeInstruction(Instruction):
-    def __init__(self, invoke_type, clsname, name, thiz, result, rtype, ptype, args, triple):
+    def __init__(
+        self, invoke_type, clsname, name, thiz, result, rtype, ptype, args, triple
+    ):
         super(InvokeInstruction, self).__init__()
         self.invoke_type = invoke_type
-        self.is_static = True if invoke_type == 'static' else False
+        self.is_static = True if invoke_type == "static" else False
         self.clsdesc = clsname
         self.value = result
         self.name = name
@@ -643,7 +667,7 @@ class InvokeInstruction(Instruction):
             self.operands.append(arg)
 
         self.triple = triple
-        assert (triple[1] == name)
+        assert triple[1] == name
 
     @property
     def thiz(self):
@@ -656,7 +680,7 @@ class InvokeInstruction(Instruction):
         return self.clsdesc
 
     def get_call_method(self):
-        return '%s->%s(%s)' % (self.clsdesc, self.name, ''.join(self.ptype))
+        return "%s->%s(%s)" % (self.clsdesc, self.name, "".join(self.ptype))
 
     def resolve_type(self):
         Changed = False
@@ -682,41 +706,56 @@ class InvokeInstruction(Instruction):
             args = self.operands
         else:
             args = self.operands[1:]
-        return visitor.visit_invoke(self, self.invoke_type, self.name, self.thiz, self.ptype,
-                                    self.rtype, args, self.clsdesc)
+        return visitor.visit_invoke(
+            self,
+            self.invoke_type,
+            self.name,
+            self.thiz,
+            self.ptype,
+            self.rtype,
+            args,
+            self.clsdesc,
+        )
 
     def __str__(self):
         args = []
         if not self.is_static:
             args.append(self.thiz)
         args.extend(self.args)
-        return '%s.%s(%s)' % (self.clsdesc, self.name,
-                              ', '.join('%s' % i for i in args))
+        return "%s.%s(%s)" % (
+            self.clsdesc,
+            self.name,
+            ", ".join("%s" % i for i in args),
+        )
 
 
 class InvokeRangeInstruction(InvokeInstruction):
     def __init__(self, clsname, name, rtype, ptype, args, triple):
         base = args.pop(0)
-        super(InvokeRangeInstruction, self).__init__(clsname, name, base, rtype,
-                                                     ptype, args, triple)
+        super(InvokeRangeInstruction, self).__init__(
+            clsname, name, base, rtype, ptype, args, triple
+        )
 
 
 class InvokeDirectInstruction(InvokeInstruction):
     def __init__(self, clsname, name, base, rtype, ptype, args, triple):
         super(InvokeDirectInstruction, self).__init__(
-            clsname, name, base, rtype, ptype, args, triple)
+            clsname, name, base, rtype, ptype, args, triple
+        )
 
 
 class InvokeStaticInstruction(InvokeInstruction):
     def __init__(self, clsname, name, base, rtype, ptype, args, triple):
         super(InvokeStaticInstruction, self).__init__(
-            clsname, name, base, rtype, ptype, args, triple)
+            clsname, name, base, rtype, ptype, args, triple
+        )
 
 
 class InvokeSuperInstruction(InvokeInstruction):
     def __init__(self, clsname, name, base, rtype, ptype, args, triple):
-        super(InvokeSuperInstruction, self).__init__(clsname, name, base, rtype,
-                                                     ptype, args, triple)
+        super(InvokeSuperInstruction, self).__init__(
+            clsname, name, base, rtype, ptype, args, triple
+        )
 
 
 class ReturnInstruction(Instruction):
@@ -748,9 +787,9 @@ class ReturnInstruction(Instruction):
 
     def __str__(self):
         if self.retval is not None:
-            return 'RETURN(%s)' % self.retval
+            return "RETURN(%s)" % self.retval
         else:
-            return 'RETURN'
+            return "RETURN"
 
 
 class NopExpression(Instruction):
@@ -786,10 +825,10 @@ class SwitchExpression(Instruction):
         return visitor.visit_switch_node(self, self.operands[0], self.cases)
 
     def resolve_type(self):
-        return self.operands[0].refine_type('I')
+        return self.operands[0].refine_type("I")
 
     def __str__(self):
-        return 'SWITCH(%s)' % (self.operands[0])
+        return "SWITCH(%s)" % (self.operands[0])
 
 
 class CheckCastExpression(Instruction):
@@ -813,7 +852,7 @@ class CheckCastExpression(Instruction):
         return visitor.visit_check_cast(self, self.operands[0], self.clsdesc)
 
     def __str__(self):
-        return 'CAST(%s) %s' % (self.type, self.operands[0])
+        return "CAST(%s) %s" % (self.type, self.operands[0])
 
 
 class InstanceOfExpression(Instruction):
@@ -829,14 +868,16 @@ class InstanceOfExpression(Instruction):
 
     def resolve_type(self):
         Changed = self.operands[0].refine_type(self.clsdesc)
-        Changed |= self.set_value_type('Z')
+        Changed |= self.set_value_type("Z")
         return Changed
 
     def visit(self, visitor):
-        return visitor.visit_instanceof(self, self.value, self.operands[0], self.clsdesc)
+        return visitor.visit_instanceof(
+            self, self.value, self.operands[0], self.clsdesc
+        )
 
     def __str__(self):
-        return '(%s instanceof %s)' % (self.value, self.clsdesc)
+        return "(%s instanceof %s)" % (self.value, self.clsdesc)
 
 
 class ArrayExpression(Instruction):
@@ -867,7 +908,7 @@ class ArrayLoadExpression(ArrayExpression):
         elem_type = self.get_elem_type()
         if elem_type:
             Changed |= self.value.refine_type(elem_type)
-            Changed |= self.array.refine_type('[' + elem_type)
+            Changed |= self.array.refine_type("[" + elem_type)
         Changed |= self.idx.refine_type("I")
         return Changed
 
@@ -886,7 +927,7 @@ class ArrayLoadExpression(ArrayExpression):
             return util.merge_type(type1, type2)
 
     def __str__(self):
-        return '%s = ARRAYLOAD(%s, %s)' % (self.value, self.array, self.idx)
+        return "%s = ARRAYLOAD(%s, %s)" % (self.value, self.array, self.idx)
 
 
 class ArrayLengthExpression(ArrayExpression):
@@ -901,13 +942,13 @@ class ArrayLengthExpression(ArrayExpression):
         return self.operands[0]
 
     def resolve_type(self):
-        return self.set_value_type('I')
+        return self.set_value_type("I")
 
     def visit(self, visitor):
         return visitor.visit_alength(self, self.value, self.array)
 
     def __str__(self):
-        return 'ARRAYLEN(%s)' % self.array
+        return "ARRAYLEN(%s)" % self.array
 
 
 class NewArrayExpression(ArrayExpression):
@@ -931,14 +972,14 @@ class NewArrayExpression(ArrayExpression):
     def resolve_type(self):
         Changed = False
         Changed |= self.set_value_type(self.type)
-        Changed |= self.operands[0].set_type('I')
+        Changed |= self.operands[0].set_type("I")
         return Changed
 
     def visit(self, visitor):
         return visitor.visit_new_array(self, self.value, self.type, self.get_size())
 
     def __str__(self):
-        return '%s = NEWARRAY_%s[%s]' % (self.value, self.type, self.get_size())
+        return "%s = NEWARRAY_%s[%s]" % (self.value, self.type, self.get_size())
 
 
 class FilledArrayExpression(ArrayExpression):
@@ -964,7 +1005,9 @@ class FilledArrayExpression(ArrayExpression):
         return Changed
 
     def visit(self, visitor):
-        return visitor.visit_filled_new_array(self, self.value, self.type, self.size, self.operands)
+        return visitor.visit_filled_new_array(
+            self, self.value, self.type, self.size, self.operands
+        )
 
 
 class FillArrayExpression(ArrayExpression):
@@ -999,7 +1042,7 @@ class MoveExceptionExpression(Instruction):
         return visitor.visit_move_exception(self, self.value)
 
     def __str__(self):
-        return 'MOVE_EXCEPT %s(%s)' % (self.value, self.value.get_type())
+        return "MOVE_EXCEPT %s(%s)" % (self.value, self.value.get_type())
 
 
 class MonitorEnterExpression(Instruction):
@@ -1009,13 +1052,13 @@ class MonitorEnterExpression(Instruction):
         self.operands.append(ref)
 
     def resolve_type(self):
-        return self.operands[0].refine_type('Ljava/lang/Object;')
+        return self.operands[0].refine_type("Ljava/lang/Object;")
 
     def visit(self, visitor):
         return visitor.visit_monitor_enter(self, self.operands[0])
 
     def __str__(self):
-        return 'MonitorEnter (%s)' % self.operands[0]
+        return "MonitorEnter (%s)" % self.operands[0]
 
 
 class MonitorExitExpression(Instruction):
@@ -1025,13 +1068,13 @@ class MonitorExitExpression(Instruction):
         self.operands.append(ref)
 
     def resolve_type(self):
-        return self.operands[0].refine_type('Ljava/lang/Object;')
+        return self.operands[0].refine_type("Ljava/lang/Object;")
 
     def visit(self, visitor):
         return visitor.visit_monitor_exit(self, self.operands[0])
 
     def __str__(self):
-        return 'MonitorExit (%s)' % self.operands[0]
+        return "MonitorExit (%s)" % self.operands[0]
 
 
 class ThrowExpression(Instruction):
@@ -1041,13 +1084,13 @@ class ThrowExpression(Instruction):
         self.operands.append(ref)
 
     def resolve_type(self):
-        return self.operands[0].set_type('Ljava/lang/Throwable;')
+        return self.operands[0].set_type("Ljava/lang/Throwable;")
 
     def visit(self, visitor):
         return visitor.visit_throw(self, self.operands[0])
 
     def __str__(self):
-        return 'Throw %s' % self.operands[0]
+        return "Throw %s" % self.operands[0]
 
 
 class BinaryExpression(Instruction):
@@ -1072,20 +1115,27 @@ class BinaryExpression(Instruction):
         return Changed
 
     def visit(self, visitor):
-        return visitor.visit_binary_expression(self, self.value, self.op, self.operands[0], self.operands[1])
+        return visitor.visit_binary_expression(
+            self, self.value, self.op, self.operands[0], self.operands[1]
+        )
 
     def __str__(self):
-        return '%s = %s %s %s' % (self.value, self.operands[0], self.op, self.operands[1])
+        return "%s = %s %s %s" % (
+            self.value,
+            self.operands[0],
+            self.op,
+            self.operands[1],
+        )
 
 
 class BinaryCompExpression(BinaryExpression):
     def __init__(self, op, result, arg1, arg2, _type):
         super(BinaryCompExpression, self).__init__(op, result, arg1, arg2, _type)
-        result.refine_type('I')
+        result.refine_type("I")
 
     def resolve_type(self):
         Changed = False
-        Changed |= self.value.refine_type('I')
+        Changed |= self.value.refine_type("I")
         for op in self.operands:
             Changed |= op.refine_type(self.op_type)
         return Changed
@@ -1098,7 +1148,7 @@ class BinaryExpression2Addr(BinaryExpression):
 
 class BinaryExpressionLit(BinaryExpression):
     def __init__(self, op, result, arg1, arg2):
-        super(BinaryExpressionLit, self).__init__(op, result, arg1, arg2, 'I')
+        super(BinaryExpressionLit, self).__init__(op, result, arg1, arg2, "I")
 
 
 class UnaryExpression(Instruction):
@@ -1115,10 +1165,12 @@ class UnaryExpression(Instruction):
         return self.set_value_type(self.type)
 
     def visit(self, visitor):
-        return visitor.visit_unary_expression(self, self.value, self.op, self.operands[0])
+        return visitor.visit_unary_expression(
+            self, self.value, self.op, self.operands[0]
+        )
 
     def __str__(self):
-        return '(%s, %s)' % (self.op, self.operands[0])
+        return "(%s, %s)" % (self.op, self.operands[0])
 
 
 class CastExpression(Instruction):
@@ -1144,10 +1196,17 @@ class CastExpression(Instruction):
         return visitor.visit_cast(self.value, self.op, self.operands[0])
 
     def __str__(self):
-        return '%s = %s(%s)' % (self.value, self.op, self.operands[0])
+        return "%s = %s(%s)" % (self.value, self.op, self.operands[0])
 
 
-CONDS = {'==': '!=', '!=': '==', '<': '>=', '<=': '>', '>=': '<', '>': '<=', }
+CONDS = {
+    "==": "!=",
+    "!=": "==",
+    "<": ">=",
+    "<=": ">",
+    ">=": "<",
+    ">": "<=",
+}
 
 
 class ConditionalExpression(Instruction):
@@ -1169,7 +1228,9 @@ class ConditionalExpression(Instruction):
         type2 = self.operands[1].get_type()
 
         # 引用类型可以比较
-        if (util.is_ref(type1) or util.is_array(type1)) and (util.is_ref(type2) or util.is_array(type2)):
+        if (util.is_ref(type1) or util.is_array(type1)) and (
+            util.is_ref(type2) or util.is_array(type2)
+        ):
             return False
 
         new_type = util.merge_type(type1, type2)
@@ -1178,12 +1239,17 @@ class ConditionalExpression(Instruction):
         return Changed
 
     def visit(self, visitor):
-        return visitor.visit_cond_expression(self, self.op, self.operands[0],
-                                             self.operands[1], (self.offset // 2 + self.target) * 2,
-                                             self.next_offset)
+        return visitor.visit_cond_expression(
+            self,
+            self.op,
+            self.operands[0],
+            self.operands[1],
+            (self.offset // 2 + self.target) * 2,
+            self.next_offset,
+        )
 
     def __str__(self):
-        return 'IF %s %s %s' % (self.operands[0], self.op, self.operands[1])
+        return "IF %s %s %s" % (self.operands[0], self.op, self.operands[1])
 
 
 class ConditionalZExpression(Instruction):
@@ -1199,11 +1265,16 @@ class ConditionalZExpression(Instruction):
         return False
 
     def visit(self, visitor):
-        return visitor.visit_condz_expression(self, self.op, self.operands[0], (self.offset // 2 + self.target) * 2,
-                                              self.next_offset)
+        return visitor.visit_condz_expression(
+            self,
+            self.op,
+            self.operands[0],
+            (self.offset // 2 + self.target) * 2,
+            self.next_offset,
+        )
 
     def __str__(self):
-        return 'IF %s %s 0' % (self.operands[0], self.op)
+        return "IF %s %s 0" % (self.operands[0], self.op)
 
 
 class InstanceExpression(Instruction):
@@ -1222,7 +1293,7 @@ class InstanceExpression(Instruction):
         return self.clsdesc
 
     def get_field(self):
-        return '%s.%s' % (self.clsdesc, self.name)
+        return "%s.%s" % (self.clsdesc, self.name)
 
     def resolve_type(self):
         Changed = self.set_value_type(self.ftype)
@@ -1234,15 +1305,11 @@ class InstanceExpression(Instruction):
 
     def visit(self, visitor):
         return visitor.visit_get_instance(
-            self,
-            self.value,
-            self.operands[0],
-            self.ftype,
-            self.clsdesc,
-            self.name)
+            self, self.value, self.operands[0], self.ftype, self.clsdesc, self.name
+        )
 
     def __str__(self):
-        return '%s = %s.%s' % (self.value, self.operands[0], self.name)
+        return "%s = %s.%s" % (self.value, self.operands[0], self.name)
 
 
 class StaticExpression(Instruction):
@@ -1258,13 +1325,15 @@ class StaticExpression(Instruction):
         return self.clsdesc
 
     def get_field(self):
-        return '%s.%s' % (self.clsdesc, self.name)
+        return "%s.%s" % (self.clsdesc, self.name)
 
     def resolve_type(self):
         return self.set_value_type(self.ftype)
 
     def visit(self, visitor):
-        return visitor.visit_get_static(self, self.value, self.ftype, self.clsdesc, self.name)
+        return visitor.visit_get_static(
+            self, self.value, self.ftype, self.clsdesc, self.name
+        )
 
     def __str__(self):
-        return '%s = %s.%s' % (self.value, self.cls, self.name)
+        return "%s = %s.%s" % (self.value, self.cls, self.name)
