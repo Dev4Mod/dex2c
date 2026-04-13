@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # coding=utf-8
 import argparse
+import hashlib
 import os
 import re
 import sys
@@ -310,9 +311,10 @@ def move_unsigned(unsigned_apk, signed_apk):
 
 
 def build_project(project_dir):
-    _cmd = [NDKBUILD, "-C", project_dir]
+    _cmd = [NDKBUILD, "-C", project_dir, "APP_SHORT_COMMANDS=true"]
     try:
         cmd = _cmd + ["-j%d" % cpu_count()]
+        print(cmd)
         check_call(cmd, stderr=STDOUT)
     except CalledProcessError:
         Logger.warning("Parallel build failed, retrying serial build...")
@@ -438,8 +440,8 @@ class MethodFilter(object):
         method_triple = get_method_triple(method)
         cls_name, name, _ = method_triple
 
-        # Skip static constructor
-        if name == "<clinit>":
+        # Skip constructors
+        if name in ("<clinit>", "<init>"):
             return False
 
         # Android VM may find the wrong method using short jni name
@@ -575,6 +577,13 @@ def native_compiled_dexes(decompiled_dir, compiled_methods):
         native_class_methods(smali_path, compiled_methods)
 
 
+def get_compiled_source_filename(jni_long_name):
+    if is_windows():
+        digest = hashlib.sha1(jni_long_name.encode("utf-8")).hexdigest()
+        return "m_" + digest + ".cpp"
+    return jni_long_name + ".cpp"
+
+
 def write_compiled_methods(project_dir, compiled_methods):
     source_dir = path.join(project_dir, "jni", "nc")
     if not path.exists(source_dir):
@@ -582,7 +591,7 @@ def write_compiled_methods(project_dir, compiled_methods):
 
     for method_triple, code in compiled_methods.items():
         full_name = JniLongName(*method_triple)
-        filepath = path.join(source_dir, full_name) + ".cpp"
+        filepath = path.join(source_dir, get_compiled_source_filename(full_name))
         if path.exists(filepath):
             Logger.warning("Overwrite file %s %s" % (filepath, method_triple))
 
@@ -607,25 +616,28 @@ def archive_compiled_code(project_dir):
 def compile_dex(apkfile, filtercfg, obfus, dynamic_register, allow_global):
     parsed_rules = []
 
+    print(filtercfg)
+
     with open(filtercfg, "r", encoding="utf-8") as fp:
         for line in fp:
+            print(line)
             rule = line.strip()
             if not rule or rule.startswith("#"):
                 continue
 
             if rule == ".*" and not allow_global:
                 Logger.error(
-                    "Global catch-all rule (.*) detected\n" +
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n" +
-                    "A global wildcard \033[33m(.*)\033[0m will likely break your build.\n" +
-                    "Converting all classes to native code is highly unstable and not recommended because:\n\n" +
-                    "  1. \033[1mIt hits Android internals:\033[0m Some system classes cannot be converted.\n" +
-                    "  2. \033[1mRuntime crashes:\033[0m System-level logic may fail when wrapped in JNI.\n\n" +
-                    "\033[1mSuggested Fix:\033[0m Targeted conversion is safer and more reliable. Example:\n" +
-                    "  \033[32m- com/some/package/.*;.*\033[0m\n\n" +
-                    "If you really need to process everything, bypass this check with:\n" +
-                    "  \033[33m--allow-global\033[0m\n" +
-                    "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    "Global catch-all rule (.*) detected\n"
+                    + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                    + "A global wildcard \033[33m(.*)\033[0m will likely break your build.\n"
+                    + "Converting all classes to native code is highly unstable and not recommended because:\n\n"
+                    + "  1. \033[1mIt hits Android internals:\033[0m Some system classes cannot be converted.\n"
+                    + "  2. \033[1mRuntime crashes:\033[0m System-level logic may fail when wrapped in JNI.\n\n"
+                    + "\033[1mSuggested Fix:\033[0m Targeted conversion is safer and more reliable. Example:\n"
+                    + "  \033[32m- com/some/package/.*;.*\033[0m\n\n"
+                    + "If you really need to process everything, bypass this check with:\n"
+                    + "  \033[33m--allow-global\033[0m\n"
+                    + "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 )
                 return {}, {}, []
 
@@ -728,6 +740,8 @@ def get_application_class_file(decompiled_dir, smali_folders, application_name):
                 return filePath
 
     return ""
+
+
 # n
 def adjust_application_mk(apkfile, project_dir):
     Logger.info("Adjusting Application.mk file using available abis from apk")
