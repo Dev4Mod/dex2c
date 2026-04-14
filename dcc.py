@@ -117,8 +117,8 @@ def modify_application_name(manifest_path, custom_loader):
     else:
         application.set(f"{{{ns}}}name", custom_loader)
 
-    if f"{{{ns}}}extractNativeLibs" in application.attrib:
-        application.attrib[f"{{{ns}}}extractNativeLibs"] = "true"
+    # if f"{{{ns}}}extractNativeLibs" in application.attrib:
+    #     application.attrib[f"{{{ns}}}extractNativeLibs"] = "true"
 
     xml_str = ET.tostring(root, encoding="utf-8").decode()
     output = before_manifest + xml_str
